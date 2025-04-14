@@ -1,0 +1,15 @@
+{
+    "name": "PHP Web Environment",
+    "build": {
+      "dockerfile": "Dockerfile"
+    },
+    "forwardPorts": [8000],
+    "postCreateCommand": "php -S 0.0.0.0:8000 -t .",
+    "customizations": {
+      "vscode": {
+        "settings": {},
+        "extensions": ["felixfbecker.php-debug"]
+      }
+    }
+  }
+  
