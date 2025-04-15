@@ -170,10 +170,6 @@ if ($action && $current_price > 0 && $quantity > 0) {
     </ul>
 
     <script>
-    const prices = <?= json_encode($prices) ?>;
-    const trendline = linearRegression(prices);
-
-
     const ctx = document.getElementById('stockChart').getContext('2d');
     const chart = new Chart(ctx, {
         type: 'line',
