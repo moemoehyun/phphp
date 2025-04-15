@@ -1,4 +1,6 @@
 <?php
+session_start();
+
 // --- .env 読み込み ---
 function loadEnv($path) {
     if (!file_exists($path)) return;
@@ -9,47 +11,70 @@ function loadEnv($path) {
         putenv("$name=$value");
     }
 }
-
 loadEnv(__DIR__ . '/.env');
-
 $api_key = getenv('API_KEY');
 
 // --- 表示期間の取得 ---
-$range = $_GET['range'] ?? '1d'; // デフォルトは1日
+$range = $_GET['range'] ?? '1d';
 
 // --- API設定 ---
-$interval_map = [
-    '1d' => '5min',    // 5分間隔
-    '1w' => '30min',   // 30分間隔
-    '1m' => '1h',      // 1時間間隔
-];
-
-$outputsize_map = [
-    '1d' => 288,   // 5分間隔×24時間 = 288本
-    '1w' => 336,   // 30分×7日間×24時間÷30分 = 約336本
-    '1m' => 720,   // 1時間×30日 = 720本
-];
-
+$interval_map = ['1d' => '5min', '1w' => '30min', '1m' => '1h'];
+$outputsize_map = ['1d' => 288, '1w' => 336, '1m' => 720];
 $interval = $interval_map[$range] ?? '1h';
 $outputsize = $outputsize_map[$range] ?? 24;
 
 $url = "https://api.twelvedata.com/time_series?symbol=AAPL&interval=$interval&outputsize=$outputsize&apikey=$api_key";
-
 $response = @file_get_contents($url);
 $data = json_decode($response, true);
 
 $labels = [];
 $prices = [];
+$current_price = 0;
 
 if (isset($data['values'])) {
-    foreach (array_reverse($data['values']) as $point) {
+    $reversed = array_reverse($data['values']);
+    foreach ($reversed as $point) {
         $labels[] = $point['datetime'];
         $prices[] = $point['close'];
     }
+    $current_price = floatval(end($prices)); // 最新の株価
 }
 
 if (!$data || isset($data['code'])) {
     echo "<p>データの取得に失敗しました（API制限など）。</p>";
+}
+
+// --- 初期資産状態の設定 ---
+if (!isset($_SESSION['cash'])) $_SESSION['cash'] = 10000;       // 初期所持金
+if (!isset($_SESSION['stocks'])) $_SESSION['stocks'] = 0;        // 保有株数
+if (!isset($_SESSION['history'])) $_SESSION['history'] = [];     // 売買履歴
+
+// --- 売買処理 ---
+$action = $_POST['action'] ?? null;
+$quantity = max(1, intval($_POST['quantity'] ?? 1));
+$message = '';
+if ($action && $current_price > 0 && $quantity > 0) {
+    if ($action === 'buy') {
+        $total_cost = $current_price * $quantity;
+        if ($_SESSION['cash'] >= $total_cost) {
+            $_SESSION['cash'] -= $total_cost;
+            $_SESSION['stocks'] += $quantity;
+            $_SESSION['history'][] = "購入: {$quantity}株（1株 {$current_price} USD）";
+            $message = "{$quantity}株購入しました。";
+        } else {
+            $message = "資金が不足しています。";
+        }
+    } elseif ($action === 'sell') {
+        if ($_SESSION['stocks'] >= $quantity) {
+            $total_earnings = $current_price * $quantity;
+            $_SESSION['cash'] += $total_earnings;
+            $_SESSION['stocks'] -= $quantity;
+            $_SESSION['history'][] = "売却: {$quantity}株（1株 {$current_price} USD）";
+            $message = "{$quantity}株売却しました。";
+        } else {
+            $message = "保有株が不足しています。";
+        }
+    }
 }
 ?>
 
@@ -57,11 +82,12 @@ if (!$data || isset($data['code'])) {
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Apple株価チャート</title>
+    <title>Apple株価チャート＆売買シミュレーター</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <h1>Apple 株価チャート</h1>
+    <h1>Apple 株価チャート ＋ 売買シミュレーター</h1>
+
     <form method="get" style="margin-bottom: 20px;">
         <label for="range">表示期間：</label>
         <select name="range" id="range" onchange="this.form.submit()">
@@ -72,6 +98,28 @@ if (!$data || isset($data['code'])) {
     </form>
 
     <canvas id="stockChart" width="800" height="400"></canvas>
+
+    <h2>現在の株価: <?= number_format($current_price, 2) ?> USD</h2>
+    <p>所持金: <?= number_format($_SESSION['cash'], 2) ?> USD</p>
+    <p>保有株: <?= $_SESSION['stocks'] ?> 株</p>
+
+    <form method="post" style="margin: 10px 0;">
+        <input type="number" name="quantity" value="1" min="1" required>
+        <button type="submit" name="action" value="buy">購入</button>
+        <button type="submit" name="action" value="sell">売却</button>
+    </form>
+
+
+    <?php if ($message): ?>
+        <p><strong><?= $message ?></strong></p>
+    <?php endif; ?>
+
+    <h3>売買履歴</h3>
+    <ul>
+        <?php foreach (array_reverse($_SESSION['history']) as $entry): ?>
+            <li><?= htmlspecialchars($entry) ?></li>
+        <?php endforeach; ?>
+    </ul>
 
     <script>
     const ctx = document.getElementById('stockChart').getContext('2d');
@@ -91,14 +139,8 @@ if (!$data || isset($data['code'])) {
         options: {
             responsive: true,
             scales: {
-                x: {
-                    ticks: {
-                        maxTicksLimit: 10
-                    }
-                },
-                y: {
-                    beginAtZero: false
-                }
+                x: { ticks: { maxTicksLimit: 10 } },
+                y: { beginAtZero: false }
             }
         }
     });
