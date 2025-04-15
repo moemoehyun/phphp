@@ -84,6 +84,7 @@ if ($action && $current_price > 0 && $quantity > 0) {
     <meta charset="UTF-8">
     <title>Apple株価チャート＆売買シミュレーター</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
     <h1>Apple 株価チャート ＋ 売買シミュレーター</h1>
@@ -109,6 +110,7 @@ if ($action && $current_price > 0 && $quantity > 0) {
         <button type="submit" name="action" value="sell">売却</button>
     </form>
 
+    <button onclick="chart.resetZoom()">ズームリセット</button>
 
     <?php if ($message): ?>
         <p><strong><?= $message ?></strong></p>
@@ -139,8 +141,31 @@ if ($action && $current_price > 0 && $quantity > 0) {
         options: {
             responsive: true,
             scales: {
-                x: { ticks: { maxTicksLimit: 10 } },
-                y: { beginAtZero: false }
+                x: {
+                    ticks: { maxTicksLimit: 10 },
+                    title: { display: true, text: '日時' }
+                },
+                y: {
+                    beginAtZero: false,
+                    title: { display: true, text: '価格（USD）' }
+                }
+            },
+            plugins: {
+                zoom: {
+                    zoom: {
+                        wheel: {
+                            enabled: true // マウスホイールでズーム
+                        },
+                        pinch: {
+                            enabled: true // ピンチイン・アウト（モバイル）
+                        },
+                        mode: 'x' // x軸方向にズーム
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x' // x軸方向にスクロール
+                    }
+                }
             }
         }
     });
