@@ -23,7 +23,12 @@ $outputsize_map = ['1d' => 288, '1w' => 336, '1m' => 720];
 $interval = $interval_map[$range] ?? '1h';
 $outputsize = $outputsize_map[$range] ?? 24;
 
-$url = "https://api.twelvedata.com/time_series?symbol=AAPL&interval=$interval&outputsize=$outputsize&apikey=$api_key";
+// --- 銘柄の取得 ---
+$symbol = $_GET['symbol'] ?? 'AAPL';  // デフォルトはAAPL
+$company_names = ['AAPL' => 'Apple', 'GOOGL' => 'Google', 'MSFT' => 'Microsoft'];
+
+$url = "https://api.twelvedata.com/time_series?symbol=$symbol&interval=$interval&outputsize=$outputsize&apikey=$api_key";
+
 $response = @file_get_contents($url);
 $data = json_decode($response, true);
 
@@ -69,7 +74,7 @@ if ($action && $current_price > 0 && $quantity > 0) {
             $total_earnings = $current_price * $quantity;
             $_SESSION['cash'] += $total_earnings;
             $_SESSION['stocks'] -= $quantity;
-            $_SESSION['history'][] = "売却: {$quantity}株（1株 {$current_price} USD）";
+            $_SESSION['history'][$symbol][] = "購入: {$quantity}株（$current_price USD）";
             $message = "{$quantity}株売却しました。";
         } else {
             $message = "保有株が不足しています。";
@@ -87,16 +92,23 @@ if ($action && $current_price > 0 && $quantity > 0) {
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
-    <h1>Apple 株価チャート ＋ 売買シミュレーター</h1>
+    <h1><?= $company_names[$symbol] ?>株シミュレーター</h1>
 
     <form method="get" style="margin-bottom: 20px;">
-        <label for="range">表示期間：</label>
-        <select name="range" id="range" onchange="this.form.submit()">
-            <option value="1d" <?= $range === '1d' ? 'selected' : '' ?>>1日</option>
-            <option value="1w" <?= $range === '1w' ? 'selected' : '' ?>>1週間</option>
-            <option value="1m" <?= $range === '1m' ? 'selected' : '' ?>>1か月</option>
-        </select>
-    </form>
+    <label for="symbol">銘柄：</label>
+    <select name="symbol" id="symbol" onchange="this.form.submit()">
+        <?php foreach ($company_names as $sym => $name): ?>
+            <option value="<?= $sym ?>" <?= $symbol === $sym ? 'selected' : '' ?>><?= $name ?></option>
+        <?php endforeach; ?>
+    </select>
+
+    <label for="range">表示期間：</label>
+    <select name="range" id="range" onchange="this.form.submit()">
+        <option value="1d" <?= $range === '1d' ? 'selected' : '' ?>>1日</option>
+        <option value="1w" <?= $range === '1w' ? 'selected' : '' ?>>1週間</option>
+        <option value="1m" <?= $range === '1m' ? 'selected' : '' ?>>1か月</option>
+    </select>
+</form>
 
     <canvas id="stockChart" width="800" height="400"></canvas>
 
