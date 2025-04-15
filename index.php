@@ -43,38 +43,51 @@ if (isset($data['values'])) {
         $prices[] = $point['close'];
     }
     $current_price = floatval(end($prices)); // 最新の株価
+    $start_price = isset($prices[0]) ? floatval($prices[0]) : 0;
+    $price_diff = $current_price - $start_price;
+
 }
 
 if (!$data || isset($data['code'])) {
     echo "<p>データの取得に失敗しました（API制限など）。</p>";
 }
 
-// --- 初期資産状態の設定 ---
-if (!isset($_SESSION['cash'])) $_SESSION['cash'] = 10000;       // 初期所持金
-if (!isset($_SESSION['stocks'])) $_SESSION['stocks'] = 0;        // 保有株数
-if (!isset($_SESSION['history'])) $_SESSION['history'] = [];     // 売買履歴
+if (!isset($_SESSION['portfolio'])) $_SESSION['portfolio'] = [];
+
+if (!isset($_SESSION['portfolio'][$symbol])) {
+    $_SESSION['portfolio'][$symbol] = [
+        'cash' => 10000,         // 初期現金
+        'stocks' => 0,           // 初期保有株数
+        'history' => []          // 初期履歴
+    ];
+}
 
 // --- 売買処理 ---
 $action = $_POST['action'] ?? null;
 $quantity = max(1, intval($_POST['quantity'] ?? 1));
 $message = '';
+
+$cash = &$_SESSION['portfolio'][$symbol]['cash'];
+$stocks = &$_SESSION['portfolio'][$symbol]['stocks'];
+$history = &$_SESSION['portfolio'][$symbol]['history'];
+
 if ($action && $current_price > 0 && $quantity > 0) {
     if ($action === 'buy') {
-        $total_cost = $current_price * $quantity;
-        if ($_SESSION['cash'] >= $total_cost) {
-            $_SESSION['cash'] -= $total_cost;
-            $_SESSION['stocks'] += $quantity;
-            $_SESSION['history'][] = "購入: {$quantity}株（1株 {$current_price} USD）";
+        $cost = $current_price * $quantity;
+        if ($cash >= $cost) {
+            $cash -= $cost;
+            $stocks += $quantity;
+            $history[] = "購入: {$quantity}株（" . number_format($cost, 2) . " USD）";
             $message = "{$quantity}株購入しました。";
         } else {
             $message = "資金が不足しています。";
         }
     } elseif ($action === 'sell') {
-        if ($_SESSION['stocks'] >= $quantity) {
-            $total_earnings = $current_price * $quantity;
-            $_SESSION['cash'] += $total_earnings;
-            $_SESSION['stocks'] -= $quantity;
-            $_SESSION['history'][$symbol][] = "購入: {$quantity}株（$current_price USD）";
+        if ($stocks >= $quantity) {
+            $revenue = $current_price * $quantity;
+            $cash += $revenue;
+            $stocks -= $quantity;
+            $history[] = "売却: {$quantity}株（" . number_format($revenue, 2) . " USD）";
             $message = "{$quantity}株売却しました。";
         } else {
             $message = "保有株が不足しています。";
@@ -87,12 +100,13 @@ if ($action && $current_price > 0 && $quantity > 0) {
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Apple株価チャート＆売買シミュレーター</title>
+    <title>株シミュレーター</title>
+    <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
-    <h1><?= $company_names[$symbol] ?>株シミュレーター</h1>
+    <h1><?= $company_names[$symbol] ?></h1>
 
     <form method="get" style="margin-bottom: 20px;">
     <label for="symbol">銘柄：</label>
@@ -113,14 +127,23 @@ if ($action && $current_price > 0 && $quantity > 0) {
     <canvas id="stockChart" width="800" height="400"></canvas>
 
     <h2>現在の株価: <?= number_format($current_price, 2) ?> USD</h2>
-    <p>所持金: <?= number_format($_SESSION['cash'], 2) ?> USD</p>
-    <p>保有株: <?= $_SESSION['stocks'] ?> 株</p>
+    <p>所持金: <?= number_format($cash, 2) ?> USD</p>
+    <p>保有株: <?= $stocks ?> 株</p>
+
+    <p>
+        期間内の変動: 
+        <span style="color: <?= $price_diff >= 0 ? 'limegreen' : 'orangered' ?>">
+            <?= ($price_diff >= 0 ? '+' : '') . number_format($price_diff, 2) ?> USD
+        </span>
+    </p>
+
 
     <form method="post" style="margin: 10px 0;">
-        <input type="number" name="quantity" value="1" min="1" required>
+        <input type="number" name="quantity" min="1" value="1" required>
         <button type="submit" name="action" value="buy">購入</button>
         <button type="submit" name="action" value="sell">売却</button>
     </form>
+
 
     <button onclick="chart.resetZoom()">ズームリセット</button>
 
@@ -128,14 +151,29 @@ if ($action && $current_price > 0 && $quantity > 0) {
         <p><strong><?= $message ?></strong></p>
     <?php endif; ?>
 
-    <h3>売買履歴</h3>
+    <h3>売買履歴（<?= $company_names[$symbol] ?>）</h3>
     <ul>
-        <?php foreach (array_reverse($_SESSION['history']) as $entry): ?>
+        <?php foreach (array_reverse($history) as $entry): ?>
             <li><?= htmlspecialchars($entry) ?></li>
         <?php endforeach; ?>
     </ul>
 
+    <h3>全銘柄の資産状況</h3>
+    <ul>
+    <?php foreach ($_SESSION['portfolio'] as $sym => $info): ?>
+        <li>
+            <?= $company_names[$sym] ?? $sym ?>：
+            所持金 <?= number_format($info['cash'], 2) ?> USD ／
+            保有株 <?= $info['stocks'] ?> 株
+        </li>
+    <?php endforeach; ?>
+    </ul>
+
     <script>
+    const prices = <?= json_encode($prices) ?>;
+    const trendline = linearRegression(prices);
+
+
     const ctx = document.getElementById('stockChart').getContext('2d');
     const chart = new Chart(ctx, {
         type: 'line',
@@ -152,14 +190,17 @@ if ($action && $current_price > 0 && $quantity > 0) {
         },
         options: {
             responsive: true,
+            plugins: {
+                legend: { labels: { color: '#ffffff' } },
+            },
             scales: {
                 x: {
-                    ticks: { maxTicksLimit: 10 },
-                    title: { display: true, text: '日時' }
+                    ticks: { color: '#aaa' },
+                    grid: { color: '#333' }
                 },
                 y: {
-                    beginAtZero: false,
-                    title: { display: true, text: '価格（USD）' }
+                    ticks: { color: '#aaa' },
+                    grid: { color: '#333' }
                 }
             },
             plugins: {
